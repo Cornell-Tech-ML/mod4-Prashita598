@@ -1,3 +1,6 @@
+import os.path
+os.environ['HOME'] = os.path.expanduser('~')
+
 import random
 
 import embeddings
@@ -34,8 +37,7 @@ class Conv1d(minitorch.Module):
         self.bias = RParam(1, out_channels, 1)
 
     def forward(self, input):
-        # TODO: Implement for Task 4.5.
-        raise NotImplementedError("Need to implement for Task 4.5")
+        return minitorch.conv1d(input, self.weights.value) + self.bias.value
 
 
 class CNNSentimentKim(minitorch.Module):
@@ -61,15 +63,28 @@ class CNNSentimentKim(minitorch.Module):
     ):
         super().__init__()
         self.feature_map_size = feature_map_size
-        # TODO: Implement for Task 4.5.
-        raise NotImplementedError("Need to implement for Task 4.5")
+        self.convs = [ Conv1d(embedding_size, feature_map_size, fs) for fs in filter_sizes ]
+        self.linear = Linear(feature_map_size, 1)
+        self.dropout = dropout
 
     def forward(self, embeddings):
         """
         embeddings tensor: [batch x sentence length x embedding dim]
         """
-        # TODO: Implement for Task 4.5.
-        raise NotImplementedError("Need to implement for Task 4.5")
+        permuted_embeddings = embeddings.permute(0, 2, 1)
+
+        conv_feature_maps = [conv.forward(permuted_embeddings).relu() for conv in self.convs]
+
+        pooled_features = (
+            minitorch.nn.max(conv_feature_maps[0], 2) +
+            minitorch.nn.max(conv_feature_maps[1], 2) +
+            minitorch.nn.max(conv_feature_maps[2], 2)
+        )
+
+        linear_output = self.linear(pooled_features.view(pooled_features.shape[0], pooled_features.shape[1]))
+        dropout_output = minitorch.nn.dropout(linear_output, self.dropout)
+
+        return dropout_output.sigmoid().view(permuted_embeddings.shape[0])
 
 
 # Evaluation helper methods
