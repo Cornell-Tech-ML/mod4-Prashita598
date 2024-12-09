@@ -243,27 +243,27 @@ def tensor_zip(
         b_strides: Strides,
     ) -> None:
         if (
-            len(out_strides) != len(a_strides)
-            or len(out_strides) != len(b_strides)
-            or (out_strides != a_strides).any()
-            or (out_strides != b_strides).any()
-            or (out_shape != a_shape).any()
-            or (out_shape != b_shape).any()
+            np.array_equal(a_strides, out_strides)
+            and np.array_equal(b_strides, out_strides)
+            and np.array_equal(a_shape, out_shape)
+            and np.array_equal(b_shape, out_shape)
         ):
             for i in prange(len(out)):
-                out_index: Index = np.empty(MAX_DIMS, np.int32)
-                a_index: Index = np.empty(MAX_DIMS, np.int32)
-                b_index: Index = np.empty(MAX_DIMS, np.int32)
+                out[i] = fn(a_storage[i], b_storage[i])
+        else:
+            for i in prange(len(out)):
+                a_index = np.zeros(len(a_shape), dtype=np.int32)
+                b_index = np.zeros(len(b_shape), dtype=np.int32)
+                out_index = np.zeros(len(out_shape), dtype=np.int32)
+
                 to_index(i, out_shape, out_index)
-                o = index_to_position(out_index, out_strides)
                 broadcast_index(out_index, out_shape, a_shape, a_index)
-                j = index_to_position(a_index, a_strides)
-                broadcast_index(out_index, out_shape, b_shape, b_strides)
-                k = index_to_position(b_index, b_index)
-                out[o] = fn(a_storage[j], b_storage[k])
-            else:
-                for i in prange(len(out)):
-                    out[i] = fn(a_storage[i], b_storage)
+                broadcast_index(out_index, out_shape, b_shape, b_index)
+
+                a_pos = index_to_position(a_index, a_strides)
+                b_pos = index_to_position(b_index, b_strides)
+
+                out[i] = fn(a_storage[a_pos], b_storage[b_pos])
         # for i in prange(len(out)):
         #     out_idx = np.zeros(len(out_shape), dtype=np.int32)
         #     to_index(i, out_shape, out_idx)
