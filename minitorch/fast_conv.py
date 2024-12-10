@@ -1,14 +1,11 @@
 from typing import Tuple, TypeVar, Any
 
-import numpy as np
 from numba import prange
 from numba import njit as _njit
 
 from .autodiff import Context
 from .tensor import Tensor
 from .tensor_data import (
-    MAX_DIMS,
-    Index,
     Shape,
     Strides,
     Storage,
@@ -22,6 +19,18 @@ Fn = TypeVar("Fn")
 
 
 def njit(fn: Fn, **kwargs: Any) -> Fn:
+    """Wrapper around numba njit decorator that forces inline and handles type hints.
+
+    Args:
+    ----
+        fn: Function to compile
+        kwargs: Additional arguments to pass to numba.njit
+
+    Returns:
+    -------
+        Compiled function
+
+    """
     return _njit(inline="always", **kwargs)(fn)  # type: ignore
 
 
@@ -78,20 +87,45 @@ def _tensor_conv1d(
         reverse (bool): anchor weight at left or right
 
     """
-    batch_, out_channels, out_width = out_shape
-    batch, in_channels, width = input_shape
-    out_channels_, in_channels_, kw = weight_shape
+    # batch_, out_channels, out_width = out_shape
+    # batch, in_channels, width = input_shape
+    # out_channels_, in_channels_, kw = weight_shape
 
-    assert (
-        batch == batch_
-        and in_channels == in_channels_
-        and out_channels == out_channels_
-    )
-    s1 = input_strides
-    s2 = weight_strides
+    # assert (
+    #     batch == batch_
+    #     and in_channels == in_channels_
+    #     and out_channels == out_channels_
+    # )
+    # s1 = input_strides
+    # s2 = weight_strides
+    batch, out_channels, width = out_shape
+    _, in_channels, input_width = input_shape
+    out_channels_, in_channels_, kernel_width = weight_shape
+
+    for b in prange(batch):
+        for oc in prange(out_channels):
+            for w in prange(width):
+                acc = 0.0
+                for ic in range(in_channels):
+                    for k in range(kernel_width):
+                        iw = w - k if reverse else w + k
+                        if 0 <= iw < input_width:
+                            input_idx = (
+                                b * input_strides[0]
+                                + ic * input_strides[1]
+                                + iw * input_strides[2]
+                            )
+                            weight_idx = (
+                                oc * weight_strides[0]
+                                + ic * weight_strides[1]
+                                + k * weight_strides[2]
+                            )
+                            acc += input[input_idx] * weight[weight_idx]
+                out_idx = b * out_strides[0] + oc * out_strides[1] + w * out_strides[2]
+                out[out_idx] = acc
 
     # TODO: Implement for Task 4.1.
-    raise NotImplementedError("Need to implement for Task 4.1")
+    # raise NotImplementedError("Need to implement for Task 4.1")
 
 
 tensor_conv1d = njit(_tensor_conv1d, parallel=True)
@@ -127,6 +161,18 @@ class Conv1dFun(Function):
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the gradient for 1D convolution.
+
+        Args:
+        ----
+            ctx: Context containing saved tensors from forward pass
+            grad_output: Gradient of the output
+
+        Returns:
+        -------
+            Tuple of gradients for input and weight
+
+        """
         input, weight = ctx.saved_values
         batch, in_channels, w = input.shape
         out_channels, in_channels, kw = weight.shape
@@ -203,24 +249,60 @@ def _tensor_conv2d(
         reverse (bool): anchor weight at top-left or bottom-right
 
     """
-    batch_, out_channels, _, _ = out_shape
-    batch, in_channels, height, width = input_shape
-    out_channels_, in_channels_, kh, kw = weight_shape
+    # batch_, out_channels, _, _ = out_shape
+    # batch, in_channels, height, width = input_shape
+    # out_channels_, in_channels_, kh, kw = weight_shape
 
-    assert (
-        batch == batch_
-        and in_channels == in_channels_
-        and out_channels == out_channels_
-    )
+    # assert (
+    #     batch == batch_
+    #     and in_channels == in_channels_
+    #     and out_channels == out_channels_
+    # )
 
-    s1 = input_strides
-    s2 = weight_strides
-    # inners
-    s10, s11, s12, s13 = s1[0], s1[1], s1[2], s1[3]
-    s20, s21, s22, s23 = s2[0], s2[1], s2[2], s2[3]
+    # s1 = input_strides
+    # s2 = weight_strides
+    # # inners
+    # s10, s11, s12, s13 = s1[0], s1[1], s1[2], s1[3]
+    # s20, s21, s22, s23 = s2[0], s2[1], s2[2], s2[3]
+
+    batch, out_channels, height, width = out_shape
+    _, in_channels, input_height, input_width = input_shape
+    out_channels_, in_channels_, kernel_height, kernel_width = weight_shape
+
+    for b in prange(batch):
+        for oc in prange(out_channels):
+            for h in prange(height):
+                for w in prange(width):
+                    acc = 0.0
+                    for ic in range(in_channels):
+                        for kh in range(kernel_height):
+                            for kw in range(kernel_width):
+                                ih = h - kh if reverse else h + kh
+                                iw = w - kw if reverse else w + kw
+                                if 0 <= ih < input_height and 0 <= iw < input_width:
+                                    input_idx = (
+                                        b * input_strides[0]
+                                        + ic * input_strides[1]
+                                        + ih * input_strides[2]
+                                        + iw * input_strides[3]
+                                    )
+                                    weight_idx = (
+                                        oc * weight_strides[0]
+                                        + ic * weight_strides[1]
+                                        + kh * weight_strides[2]
+                                        + kw * weight_strides[3]
+                                    )
+                                    acc += input[input_idx] * weight[weight_idx]
+                    out_idx = (
+                        b * out_strides[0]
+                        + oc * out_strides[1]
+                        + h * out_strides[2]
+                        + w * out_strides[3]
+                    )
+                    out[out_idx] = acc
 
     # TODO: Implement for Task 4.2.
-    raise NotImplementedError("Need to implement for Task 4.2")
+    # raise NotImplementedError("Need to implement for Task 4.2")
 
 
 tensor_conv2d = njit(_tensor_conv2d, parallel=True, fastmath=True)
@@ -254,6 +336,18 @@ class Conv2dFun(Function):
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
+        """Compute the gradient for 2D convolution.
+
+        Args:
+        ----
+            ctx: Context containing saved tensors from forward pass
+            grad_output: Gradient of the output
+
+        Returns:
+        -------
+            Tuple of gradients for input and weight
+
+        """
         input, weight = ctx.saved_values
         batch, in_channels, h, w = input.shape
         out_channels, in_channels, kh, kw = weight.shape
