@@ -193,7 +193,7 @@ class ImageTrain:
 
 if __name__ == "__main__":
     data_train, data_val = (make_mnist(0, 5000), make_mnist(10000, 10500))
-    
+
     with open("mnist_logs.txt", "w") as log_file:  # Open the log file in write mode
         ImageTrain().train(
             data_train,

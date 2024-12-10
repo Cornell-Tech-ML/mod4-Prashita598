@@ -147,7 +147,7 @@ def default_log_fn(
             f"Validation accuracy: {validation_accuracy[-1]:.2%}\n"
             f"Best Valid accuracy: {best_val:.2%}\n"
         )
-    
+
     # Save the log message to a file
     with open(log_file_path, "a") as log_file:
         log_file.write(log_message)
