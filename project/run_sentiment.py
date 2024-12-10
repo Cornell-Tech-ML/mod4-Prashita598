@@ -1,6 +1,3 @@
-import os.path
-os.environ['HOME'] = os.path.expanduser('~')
-
 import random
 
 import embeddings
@@ -37,7 +34,9 @@ class Conv1d(minitorch.Module):
         self.bias = RParam(1, out_channels, 1)
 
     def forward(self, input):
-        return minitorch.conv1d(input, self.weights.value) + self.bias.value
+        # Task 4.5.
+        out = minitorch.conv1d(input, self.weights.value) + self.bias.value
+        return out
 
 
 class CNNSentimentKim(minitorch.Module):
@@ -50,7 +49,7 @@ class CNNSentimentKim(minitorch.Module):
         feature_map_size=100 output channels and [3, 4, 5]-sized kernels
         followed by a non-linear activation function (the paper uses tanh, we apply a ReLu)
     2. Apply max-over-time across each feature map
-    3. Apply a Linear to size C (number of classes) followed by a ReLU and Dropout with rate 25%
+    3. Apply a Linear to generate output of size C (number of classes) followed by Dropout with rate 25%
     4. Apply a sigmoid over the class dimension.
     """
 
@@ -63,7 +62,10 @@ class CNNSentimentKim(minitorch.Module):
     ):
         super().__init__()
         self.feature_map_size = feature_map_size
-        self.convs = [ Conv1d(embedding_size, feature_map_size, fs) for fs in filter_sizes ]
+        # Task 4.5.
+        self.conv1 = Conv1d(embedding_size, feature_map_size, filter_sizes[0])
+        self.conv2 = Conv1d(embedding_size, feature_map_size, filter_sizes[1])
+        self.conv3 = Conv1d(embedding_size, feature_map_size, filter_sizes[2])
         self.linear = Linear(feature_map_size, 1)
         self.dropout = dropout
 
@@ -71,20 +73,30 @@ class CNNSentimentKim(minitorch.Module):
         """
         embeddings tensor: [batch x sentence length x embedding dim]
         """
-        permuted_embeddings = embeddings.permute(0, 2, 1)
+        # Task 4.5.
+        x = embeddings.permute(0, 2, 1)
+        # feature maps
+        out1 = self.conv1.forward(x).relu()
+        out2 = self.conv2.forward(x).relu()
+        out3 = self.conv3.forward(x).relu()
 
-        conv_feature_maps = [conv.forward(permuted_embeddings).relu() for conv in self.convs]
+        # Max over time
+        m1 = minitorch.max(out1, dim=2)  # max pooling over the time dimension
+        m2 = minitorch.max(out2, dim=2)
+        m3 = minitorch.max(out3, dim=2)
 
-        pooled_features = (
-            minitorch.nn.max(conv_feature_maps[0], 2) +
-            minitorch.nn.max(conv_feature_maps[1], 2) +
-            minitorch.nn.max(conv_feature_maps[2], 2)
-        )
+        # Combine feature maps
+        combined = m1 + m2 + m3
+        combined = combined.view(combined.shape[0], combined.shape[1])
 
-        linear_output = self.linear(pooled_features.view(pooled_features.shape[0], pooled_features.shape[1]))
-        dropout_output = minitorch.nn.dropout(linear_output, self.dropout)
+        # Apply linear layer
+        out = self.linear.forward(combined)
 
-        return dropout_output.sigmoid().view(permuted_embeddings.shape[0])
+        # Apply dropout (during training)
+        out = minitorch.dropout(out, self.dropout, not self.training)
+
+        # Apply sigmoid activation
+        return out.sigmoid().view(embeddings.shape[0])
 
 
 # Evaluation helper methods
@@ -111,6 +123,9 @@ def get_accuracy(predictions_array):
 best_val = 0.0
 
 
+# Specify the log file path
+log_file_path = "sentiment_logs.txt"
+
 def default_log_fn(
     epoch,
     train_loss,
@@ -124,10 +139,22 @@ def default_log_fn(
     best_val = (
         best_val if best_val > validation_accuracy[-1] else validation_accuracy[-1]
     )
-    print(f"Epoch {epoch}, loss {train_loss}, train accuracy: {train_accuracy[-1]:.2%}")
+    log_message = (
+        f"Epoch {epoch}, loss {train_loss}, train accuracy: {train_accuracy[-1]:.2%}\n"
+    )
     if len(validation_predictions) > 0:
-        print(f"Validation accuracy: {validation_accuracy[-1]:.2%}")
-        print(f"Best Valid accuracy: {best_val:.2%}")
+        log_message += (
+            f"Validation accuracy: {validation_accuracy[-1]:.2%}\n"
+            f"Best Valid accuracy: {best_val:.2%}\n"
+        )
+    
+    # Save the log message to a file
+    with open(log_file_path, "a") as log_file:
+        log_file.write(log_message)
+
+    # Optionally still print to the console
+    print(log_message)
+
 
 
 class SentenceSentimentTrain:
